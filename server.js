@@ -182,10 +182,11 @@ async function bookTeeTime(params) {
     // --- Step 4: Fill in the form ---
     addLog('Filling booking form...');
 
-    // Party size - always at least Twosome (guest TBA slot), more if named guests provided.
-    // Named guests are optional — leaving them empty lets the site default to Guest (TBA).
+    // Party size is derived from how many named guests are provided.
+    // 0 guests = Single, 1 = Twosome, 2 = Threesome, 3 = Foursome.
+    // Unfilled guest slots are left at the site's default (Guest TBA).
     const validGuests = (guestNames || []).filter(n => n && n.trim());
-    const partySize = validGuests.length === 0 ? 'Twosome' :
+    const partySize = validGuests.length === 0 ? 'Single' :
                       validGuests.length === 1 ? 'Twosome' :
                       validGuests.length === 2 ? 'Threesome' : 'Foursome';
 
@@ -354,6 +355,4 @@ app.post('/book', async (req, res) => {
   });
 
   const statusCode = result.bookingStatus === 'confirmed' ? 200 :
-                     result.bookingStatus === 'unavailable' ? 200 : 500;
-
-  res.status(status
+                     result.bookingStatus === 'unavailable' ? 200 : 500
