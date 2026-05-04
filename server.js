@@ -182,9 +182,10 @@ async function bookTeeTime(params) {
     // --- Step 4: Fill in the form ---
     addLog('Filling booking form...');
 
-    // Party size - set to Twosome if 1 guest, Threesome if 2, etc.
+    // Party size - always at least Twosome (guest TBA slot), more if named guests provided.
+    // Named guests are optional — leaving them empty lets the site default to Guest (TBA).
     const validGuests = (guestNames || []).filter(n => n && n.trim());
-    const partySize = validGuests.length === 0 ? 'Single' :
+    const partySize = validGuests.length === 0 ? 'Twosome' :
                       validGuests.length === 1 ? 'Twosome' :
                       validGuests.length === 2 ? 'Threesome' : 'Foursome';
 
@@ -355,9 +356,4 @@ app.post('/book', async (req, res) => {
   const statusCode = result.bookingStatus === 'confirmed' ? 200 :
                      result.bookingStatus === 'unavailable' ? 200 : 500;
 
-  res.status(statusCode).json(result);
-});
-
-app.listen(PORT, () => {
-  console.log(`Brooklake booking agent running on port ${PORT}`);
-});
+  res.status(status
