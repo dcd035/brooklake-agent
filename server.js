@@ -111,52 +111,17 @@ async function bookTeeTime(params) {
     addLog('Navigating to tee sheet...');
     await page.goto(
       'https://www.brooklakecc.com/Default.aspx?p=dynamicmodule&pageid=175&tt=booking&ssid=100227&vnf=1',
-      { waitUntil: 'networkidle', timeout: 30000 }
+      { waitUntil: 'domcontentloaded', timeout: 30000 }
     );
 
-    // Set date and click Update to load the right day
-    addLog(`Setting tee sheet date to ${bookingDate}...`);
-// Wait for tee sheet to load - look for any date input or the tee time grid
-await page.waitForSelector('input[id*="txtDate"], table.TeeSheet, .tee-time, [id*="TeeTime"]', { timeout: 15000 });
-
-// Set date in whatever txtDate field exists
-await page.evaluate((date) => {
-  const inp = document.querySelector('input[id*="txtDate"]');
-  if (inp) inp.value = date;
-}, bookingDate);
-
-    // Click the Update button (autoRefreshWLoad or btnSearch)
-    await page.evaluate((date) => {
-      const dateInputs = document.querySelectorAll('input[id*="txtDate"]');
-      dateInputs.forEach(inp => { inp.value = date; });
-    }, bookingDate);
-
-    // Trigger the refresh via the hidden button
-    await page.evaluate(() => {
-      const btn = document.querySelector('input[id*="autoRefreshWLoad"], input[id*="autoRefresh"]:not([type=submit])');
-      if (btn) btn.click();
-    });
-
-    await page.waitForTimeout(3000);
-    addLog('Tee sheet loaded');
+    // Wait for page JS to initialize — no date setting needed, date is in the URL
+    addLog('Waiting for tee sheet JS to initialize...');
+    await page.waitForTimeout(5000);
+    addLog('Tee sheet ready');
 
     // --- Step 3: Call LaunchReserver for the target time ---
     addLog(`Calling LaunchReserver for ${bookingDate} ${outingTime}...`);
 
-    // LaunchReserver signature: (courseId, date, time, hole, bookedCount, xsome, flag, startletter)
-    // We call with xsome=4 to allow up to 4 players
-    const launchResult = await page.evaluate(async (time) => {
-      try {
-        // Wait for tee sheet data to be ready
-        if (typeof LaunchReserver === 'undefined') return 'LaunchReserver not defined';
-        LaunchReserver('1', arguments[0], time, '1', '0', '4', 'false', '');
-        return 'called';
-      } catch(e) {
-        return 'error: ' + e.message;
-      }
-    }, outingTime);
-
-    // Use page.evaluate with explicit arg passing
     const launch2 = await page.evaluate((args) => {
       try {
         if (typeof LaunchReserver === 'undefined') return 'LaunchReserver not defined';
@@ -189,11 +154,9 @@ await page.evaluate((date) => {
     const partySize = partySizeMap[Math.min(totalPlayers, 4)] || 'Single';
     addLog(`Party size: ${partySize} (${totalPlayers} total players)`);
 
-    // Set party size via the Telerik combo input
     try {
       const partySizeInput = iframe.locator('#ctl00_ctrl_MakeTeeTime_drpPartySize_tCombo_Input');
       await partySizeInput.fill(partySize, { timeout: 5000 });
-      // Trigger change event
       await partySizeInput.evaluate((el, val) => {
         el.value = val;
         el.dispatchEvent(new Event('change', { bubbles: true }));
@@ -214,7 +177,6 @@ await page.evaluate((date) => {
         const playerInput = iframe.locator(`#ctl00_ctrl_MakeTeeTime_P${playerNum}_PCombo_PlayerName_Input`);
         await playerInput.fill(guestName, { timeout: 5000 });
         await page.waitForTimeout(1000);
-        // Dismiss any autocomplete dropdown
         await playerInput.evaluate(el => {
           el.dispatchEvent(new Event('blur', { bubbles: true }));
         });
@@ -241,12 +203,10 @@ await page.evaluate((date) => {
     await page.waitForTimeout(5000);
 
     // --- Step 6: Check result ---
-    // Check the iframe content for confirmation
     let resultText = '';
     try {
       resultText = await iframe.locator('body').innerText({ timeout: 5000 });
     } catch(e) {
-      // iframe may have navigated away - check main page
       resultText = await page.evaluate(() => document.body.innerText);
     }
 
@@ -289,7 +249,7 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', service: 'brooklake-agent' });
 });
 
-// Debug endpoint: navigate to tee sheet, open dialog for a time, return iframe DOM snapshot
+// Debug endpoint
 app.post('/debug', async (req, res) => {
   const { username, password, bookingDate, outingTime } = req.body;
   if (!username || !password || !bookingDate || !outingTime) {
@@ -350,39 +310,29 @@ app.post('/debug', async (req, res) => {
     addLog('Navigating to tee sheet...');
     await page.goto(
       'https://www.brooklakecc.com/Default.aspx?p=dynamicmodule&pageid=175&tt=booking&ssid=100227&vnf=1',
-      { waitUntil: 'networkidle', timeout: 30000 }
+      { waitUntil: 'domcontentloaded', timeout: 30000 }
     );
 
-    // Set date
-    await page.waitForSelector('input[id*="txtDate"], table, [onclick*="LaunchReserver"]', { timeout: 15000 });
-    await page.evaluate((date) => {
-      document.querySelectorAll('input[id*="txtDate"]').forEach(inp => { inp.value = date; });
-    }, bookingDate);
-    await page.evaluate(() => {
-      const btn = document.querySelector('input[id*="autoRefreshWLoad"], input[id*="autoRefresh"]:not([type=submit])');
-      if (btn) btn.click();
-    });
-    await page.waitForTimeout(3000);
-    addLog(`Tee sheet loaded for ${bookingDate}`);
+    // Wait for page JS to initialize
+    addLog('Waiting for tee sheet JS to initialize...');
+    await page.waitForTimeout(5000);
+    addLog('Tee sheet ready');
 
-    // Find the correct tee time slot and get its LaunchReserver args from DOM
-    const slotInfo = await page.evaluate((targetTime) => {
+    // Snapshot what's on the page and check for LaunchReserver
+    const pageSnapshot = await page.evaluate((targetTime) => {
       const allEls = Array.from(document.querySelectorAll('[onclick]'));
-      const slot = allEls.find(el => {
-        const oc = el.getAttribute('onclick') || '';
-        return oc.includes('LaunchReserver') && oc.includes(targetTime);
-      });
-      if (!slot) {
-        // Return all available slots so we can debug
-        const slots = allEls
-          .filter(el => (el.getAttribute('onclick')||'').includes('LaunchReserver'))
-          .map(el => el.getAttribute('onclick'));
-        return { found: false, availableSlots: slots.slice(0, 20) };
-      }
-      return { found: true, onclick: slot.getAttribute('onclick') };
+      const slots = allEls
+        .filter(el => (el.getAttribute('onclick') || '').includes('LaunchReserver'))
+        .map(el => el.getAttribute('onclick'));
+      const bodyText = document.body.innerText.substring(0, 300);
+      const hasLaunchReserver = typeof LaunchReserver !== 'undefined';
+      const targetSlot = slots.find(s => s.includes(targetTime));
+      return { bodyText, slotCount: slots.length, slots: slots.slice(0, 5), hasLaunchReserver, targetSlot };
     }, outingTime);
 
-    addLog(`Slot search result: ${JSON.stringify(slotInfo)}`);
+    addLog(`Page snapshot: LaunchReserver defined=${pageSnapshot.hasLaunchReserver}, slots=${pageSnapshot.slotCount}`);
+    addLog(`Body preview: ${pageSnapshot.bodyText}`);
+    addLog(`Target slot found: ${pageSnapshot.targetSlot || 'NO'}`);
 
     // Call LaunchReserver
     addLog(`Calling LaunchReserver for ${outingTime}...`);
@@ -417,22 +367,18 @@ app.post('/debug', async (req, res) => {
         const els = Array.from(doc.querySelectorAll('input:not([type=hidden]), select, textarea, a, button'));
         return {
           src_base: iframe.src.split('?')[0],
-          src_params: iframe.src.split('?')[1] ? iframe.src.split('?')[1].split('&').map(p => {
-            const [k,v] = p.split('='); return k + '=' + decodeURIComponent(v||'');
-          }) : [],
           title: doc.title,
           elements: els.map(el => ({
-            tag: el.tagName, id: el.id, name: el.name||'',
-            type: el.type||'', value: el.value||'', text: (el.innerText||'').trim().substring(0,50)
+            tag: el.tagName, id: el.id, name: el.name || '',
+            type: el.type || '', value: el.value || '', text: (el.innerText || '').trim().substring(0, 50)
           }))
         };
       } catch(e) { return { error: e.message }; }
     });
 
-    addLog(`Iframe title: ${iframeInfo.title}`);
-    addLog(`Iframe element count: ${iframeInfo.elements ? iframeInfo.elements.length : 0}`);
+    addLog(`Iframe info: ${JSON.stringify(iframeInfo).substring(0, 300)}`);
 
-    res.json({ log, slotInfo, launchResult, iframeInfo });
+    res.json({ log, pageSnapshot, launchResult, iframeInfo });
 
   } catch (err) {
     res.json({ error: err.message, log });
