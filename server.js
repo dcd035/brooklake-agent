@@ -122,10 +122,24 @@ async function bookTeeTime(params) {
     addLog('Login successful');
 
     // --- Step 3: Navigate to booking dialog ---
+    // Convert time from "11:30 AM" / "1:30 PM" format to 24-hour "HH:MM" for the URL
+    function to24Hour(timeStr) {
+      const m = timeStr.trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+      if (!m) return timeStr; // already in HH:MM or unknown format, pass through
+      let hours = parseInt(m[1], 10);
+      const minutes = m[2];
+      const period = m[3].toUpperCase();
+      if (period === 'AM' && hours === 12) hours = 0;
+      if (period === 'PM' && hours !== 12) hours += 12;
+      return `${String(hours).padStart(2, '0')}:${minutes}`;
+    }
+    const timeFor24 = to24Hour(outingTime);
+    addLog(`Time converted: "${outingTime}" -> "${timeFor24}"`);
+
     const dialogUrl = `https://www.brooklakecc.com/dialog.aspx?p=NetcaddyPop&tt=MakeTeeTime` +
       `&NoModResize=1&NoNav=1&ShowFooter=False&courseid=1` +
       `&date=${encodeURIComponent(bookingDate)}` +
-      `&time=${encodeURIComponent(outingTime)}` +
+      `&time=${encodeURIComponent(timeFor24)}` +
       `&hole=1&numholes=0&xsome=4&startletter=`;
 
     addLog(`Navigating to booking dialog: ${bookingDate} ${outingTime}`);
@@ -247,7 +261,7 @@ async function bookTeeTime(params) {
       }
     }
 
-    addLog(`Final status: ${bookingStatus} — ${bookingMessage}`);
+    addLog(`Final status: ${bookingStatus} -- ${bookingMessage}`);
 
     return { success: bookingStatus === 'confirmed', bookingStatus, bookingMessage, log };
 
