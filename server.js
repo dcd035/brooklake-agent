@@ -9,8 +9,8 @@ const PORT = process.env.PORT || 3000;
 
 async function askGemini(apiKey, imageBase64, prompt) {
   const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-  const result = await model.generateContent([
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+    const result = await model.generateContent([
     prompt,
     { inlineData: { mimeType: 'image/png', data: imageBase64 } }
   ]);
