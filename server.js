@@ -354,7 +354,7 @@ app.post('/debug', async (req, res) => {
     );
 
     // Set date
-    await page.waitForSelector('#txtDate', { timeout: 15000 });
+    await page.waitForSelector('input[id*="txtDate"], table, [onclick*="LaunchReserver"]', { timeout: 15000 });
     await page.evaluate((date) => {
       document.querySelectorAll('input[id*="txtDate"]').forEach(inp => { inp.value = date; });
     }, bookingDate);
