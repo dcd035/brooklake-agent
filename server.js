@@ -116,8 +116,14 @@ async function bookTeeTime(params) {
 
     // Set date and click Update to load the right day
     addLog(`Setting tee sheet date to ${bookingDate}...`);
-    await page.waitForSelector('#txtDate', { timeout: 15000 });
-    await page.fill('#txtDate', bookingDate);
+// Wait for tee sheet to load - look for any date input or the tee time grid
+await page.waitForSelector('input[id*="txtDate"], table.TeeSheet, .tee-time, [id*="TeeTime"]', { timeout: 15000 });
+
+// Set date in whatever txtDate field exists
+await page.evaluate((date) => {
+  const inp = document.querySelector('input[id*="txtDate"]');
+  if (inp) inp.value = date;
+}, bookingDate);
 
     // Click the Update button (autoRefreshWLoad or btnSearch)
     await page.evaluate((date) => {
