@@ -57,7 +57,6 @@ async function bookTeeTime(params) {
     addLog('Loading login page...');
     await page.goto('https://www.brooklakecc.com/login', { waitUntil: 'domcontentloaded', timeout: 30000 });
 
-    // Get RC4 key from page scripts
     let rc4Key = await page.evaluate(() => {
       const scripts = Array.from(document.querySelectorAll('script'));
       for (const s of scripts) {
@@ -84,7 +83,6 @@ async function bookTeeTime(params) {
     if (!rc4Key) throw new Error('Could not retrieve RC4 encryption key');
     addLog(`Got RC4 key (length ${rc4Key.length})`);
 
-    // Submit credentials
     const encUser = rc4(rc4Key, username);
     const encPass = rc4(rc4Key, password);
 
@@ -100,7 +98,6 @@ async function bookTeeTime(params) {
 
     addLog(`Login response: ${loginResp.substring(0, 80)}`);
 
-    // Verify login by navigating home
     await page.goto('https://www.brooklakecc.com/default.aspx', { waitUntil: 'domcontentloaded', timeout: 15000 });
     const afterLoginUrl = page.url();
     addLog(`After login URL: ${afterLoginUrl}`);
@@ -111,13 +108,20 @@ async function bookTeeTime(params) {
     addLog('Navigating to tee sheet...');
     await page.goto(
       'https://www.brooklakecc.com/Default.aspx?p=dynamicmodule&pageid=175&tt=booking&ssid=100227&vnf=1',
-      { waitUntil: 'domcontentloaded', timeout: 30000 }
+      { waitUntil: 'networkidle', timeout: 60000 }
     );
+    addLog(`Tee sheet URL: ${page.url()}`);
 
-    // Wait for page JS to initialize — no date setting needed, date is in the URL
-    addLog('Waiting for tee sheet JS to initialize...');
-    await page.waitForTimeout(5000);
-    addLog('Tee sheet ready');
+    // Wait for LaunchReserver to be defined
+    addLog('Waiting for LaunchReserver to be defined...');
+    try {
+      await page.waitForFunction(() => typeof LaunchReserver !== 'undefined', { timeout: 15000 });
+      addLog('LaunchReserver is defined');
+    } catch(e) {
+      addLog('LaunchReserver not defined after wait — page may not have loaded correctly');
+      const bodySnip = await page.evaluate(() => document.body.innerText.substring(0, 200));
+      addLog(`Body: ${bodySnip}`);
+    }
 
     // --- Step 3: Call LaunchReserver for the target time ---
     addLog(`Calling LaunchReserver for ${bookingDate} ${outingTime}...`);
@@ -147,9 +151,8 @@ async function bookTeeTime(params) {
     // --- Step 4: Fill form inside the iframe ---
     const iframe = page.frameLocator('#BookMgriframe');
 
-    // Set party size
     const validGuests = (guestNames || []).filter(n => n && n.trim());
-    const totalPlayers = validGuests.length + 1; // +1 for the booker
+    const totalPlayers = validGuests.length + 1;
     const partySizeMap = { 1: 'Single', 2: 'Twosome', 3: 'Threesome', 4: 'Foursome' };
     const partySize = partySizeMap[Math.min(totalPlayers, 4)] || 'Single';
     addLog(`Party size: ${partySize} (${totalPlayers} total players)`);
@@ -168,7 +171,6 @@ async function bookTeeTime(params) {
       addLog(`Party size set failed: ${e.message}`);
     }
 
-    // Fill guest names (Player 2, 3, 4)
     for (let i = 0; i < Math.min(validGuests.length, 3); i++) {
       const playerNum = i + 2;
       const guestName = validGuests[i];
@@ -198,7 +200,6 @@ async function bookTeeTime(params) {
       throw new Error('Could not click Make Tee Time button: ' + e.message);
     }
 
-    // Wait for response
     addLog('Waiting for booking response...');
     await page.waitForTimeout(5000);
 
@@ -310,15 +311,22 @@ app.post('/debug', async (req, res) => {
     addLog('Navigating to tee sheet...');
     await page.goto(
       'https://www.brooklakecc.com/Default.aspx?p=dynamicmodule&pageid=175&tt=booking&ssid=100227&vnf=1',
-      { waitUntil: 'domcontentloaded', timeout: 30000 }
+      { waitUntil: 'networkidle', timeout: 60000 }
     );
+    addLog(`Tee sheet URL: ${page.url()}`);
 
-    // Wait for page JS to initialize
-    addLog('Waiting for tee sheet JS to initialize...');
-    await page.waitForTimeout(5000);
-    addLog('Tee sheet ready');
+    // Wait for LaunchReserver
+    addLog('Waiting for LaunchReserver to be defined...');
+    try {
+      await page.waitForFunction(() => typeof LaunchReserver !== 'undefined', { timeout: 15000 });
+      addLog('LaunchReserver is defined');
+    } catch(e) {
+      addLog('LaunchReserver not defined after wait');
+      const bodySnip = await page.evaluate(() => document.body.innerText.substring(0, 300));
+      addLog(`Body: ${bodySnip}`);
+    }
 
-    // Snapshot what's on the page and check for LaunchReserver
+    // Snapshot page
     const pageSnapshot = await page.evaluate((targetTime) => {
       const allEls = Array.from(document.querySelectorAll('[onclick]'));
       const slots = allEls
@@ -327,12 +335,13 @@ app.post('/debug', async (req, res) => {
       const bodyText = document.body.innerText.substring(0, 300);
       const hasLaunchReserver = typeof LaunchReserver !== 'undefined';
       const targetSlot = slots.find(s => s.includes(targetTime));
-      return { bodyText, slotCount: slots.length, slots: slots.slice(0, 5), hasLaunchReserver, targetSlot };
+      return { bodyText, slotCount: slots.length, slots: slots.slice(0, 5), hasLaunchReserver, targetSlot: targetSlot || null };
     }, outingTime);
 
-    addLog(`Page snapshot: LaunchReserver defined=${pageSnapshot.hasLaunchReserver}, slots=${pageSnapshot.slotCount}`);
-    addLog(`Body preview: ${pageSnapshot.bodyText}`);
-    addLog(`Target slot found: ${pageSnapshot.targetSlot || 'NO'}`);
+    addLog(`LaunchReserver defined: ${pageSnapshot.hasLaunchReserver}, slot count: ${pageSnapshot.slotCount}`);
+    addLog(`Body: ${pageSnapshot.bodyText}`);
+    addLog(`Target slot: ${pageSnapshot.targetSlot || 'NOT FOUND'}`);
+    addLog(`Sample slots: ${JSON.stringify(pageSnapshot.slots)}`);
 
     // Call LaunchReserver
     addLog(`Calling LaunchReserver for ${outingTime}...`);
